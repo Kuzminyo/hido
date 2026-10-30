@@ -2,10 +2,13 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// Hides menu bar icons by stretching a separator over the free space to its left, so the icons
-/// there no longer fit and macOS hides them. An eye button to the right of the separator toggles
-/// it; unlike the separator it never moves. It is not an arrow, since macOS already shows its
-/// own "«" button for icons that don't fit.
+/// Hides the menu bar icons left of a separator. An eye button to its right toggles them and
+/// never moves.
+///
+/// On macOS 27+ with Accessibility access, macOS itself is asked to hide those apps' icons
+/// (`NativeHiding`), which looks like Hidden Bar on older systems: the icons just disappear.
+/// Otherwise the separator is stretched over the free space to its left, so the icons there
+/// no longer fit and macOS moves them into its own "«" overflow button.
 final class MenuBarController: NSObject, NSMenuDelegate {
     private static let separatorLength: CGFloat = 14
     static let autoHideDelays: [Int] = [5, 10, 30, 0]
@@ -14,6 +17,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let toggleItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let separatorItem = NSStatusBar.system.statusItem(withLength: MenuBarController.separatorLength)
     private(set) var isHidden = false
+    private var isHiding = false
+    private var didAskForAccess = false
+    private let native = NativeHiding()
     private var autoHideWork: DispatchWorkItem?
     private var mouseMonitor: Any?
     private var guide: NSPopover?
@@ -58,13 +64,44 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     // MARK: - Hide and show
 
     func hide() {
-        guard !isHidden else { return }
+        guard !isHidden, !isHiding else { return }
         guard isSeparatorLeftOfToggle else {
-            // Stretching a separator that sits to the right would push the eye away too.
+            // Hiding everything left of a separator that sits to the right would take the eye too.
             showMisplacedSeparatorAlert()
             return
         }
         autoHideWork?.cancel()
+
+        if NativeHiding.isAvailable {
+            if NativeHiding.hasAccess {
+                // Positions are only right while nothing is hidden, so read them now.
+                let boundary = separatorItem.button?.window?.frame.minX ?? 0
+                isHiding = true
+                native.hide(leftOf: boundary) { [weak self] succeeded in
+                    guard let self else { return }
+                    self.isHiding = false
+                    if succeeded {
+                        self.isHidden = true
+                        // The separator isn't needed while macOS does the hiding.
+                        self.separatorItem.button?.image = nil
+                        self.separatorItem.length = 0
+                        self.updateToggleIcon()
+                    } else {
+                        self.stretchSeparator()
+                    }
+                }
+                return
+            }
+            if !didAskForAccess {
+                didAskForAccess = true
+                NativeHiding.requestAccess()
+            }
+        }
+        stretchSeparator()
+    }
+
+    /// Fallback hiding: the separator takes up the free space, pushing the icons into "«".
+    private func stretchSeparator() {
         let length = hiddenLength
         isHidden = true
         separatorItem.button?.image = nil
@@ -77,6 +114,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             scheduleAutoHide()
             return
         }
+        native.show()
         isHidden = false
         separatorItem.length = Self.separatorLength
         separatorItem.button?.image = Self.separatorImage
