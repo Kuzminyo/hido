@@ -2,14 +2,16 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// Hides menu bar icons by stretching a separator item over the free space to its left, so the
-/// icons there no longer fit and macOS hides them. The separator is also the button: click the
-/// "|" to hide, click the empty stretched area to show again. There is no chevron of our own,
-/// because macOS already shows its "«" button for icons that don't fit.
+/// Hides menu bar icons by stretching a separator over the free space to its left, so the icons
+/// there no longer fit and macOS hides them. An eye button to the right of the separator toggles
+/// it; unlike the separator it never moves. It is not an arrow, since macOS already shows its
+/// own "«" button for icons that don't fit.
 final class MenuBarController: NSObject, NSMenuDelegate {
     private static let separatorLength: CGFloat = 14
     static let autoHideDelays: [Int] = [5, 10, 30, 0]
 
+    // Created first, so it sits to the right of the separator and keeps its place.
+    private let toggleItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let separatorItem = NSStatusBar.system.statusItem(withLength: MenuBarController.separatorLength)
     private(set) var isHidden = false
     private var autoHideWork: DispatchWorkItem?
@@ -31,13 +33,18 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     override init() {
         super.init()
+        toggleItem.autosaveName = "HidoToggle"
         separatorItem.autosaveName = "HidoSeparator"
-        if let button = separatorItem.button {
+
+        if let button = toggleItem.button {
             button.target = self
-            button.action = #selector(separatorClicked)
+            button.action = #selector(toggleClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        updateSeparator()
+        separatorItem.button?.image = Self.separatorImage
+        separatorItem.button?.toolTip = "Иконки левее этой черты Hido прячет. Перетаскивайте их с зажатым ⌘."
+
+        updateToggleIcon()
         updateMouseMonitor()
 
         if UserDefaults.standard.bool(forKey: "didShowGuide") {
@@ -52,11 +59,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func hide() {
         guard !isHidden else { return }
+        guard isSeparatorLeftOfToggle else {
+            // Stretching a separator that sits to the right would push the eye away too.
+            showMisplacedSeparatorAlert()
+            return
+        }
         autoHideWork?.cancel()
         let length = hiddenLength
         isHidden = true
+        separatorItem.button?.image = nil
         separatorItem.length = length
-        updateSeparator()
+        updateToggleIcon()
     }
 
     func show() {
@@ -66,7 +79,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
         isHidden = false
         separatorItem.length = Self.separatorLength
-        updateSeparator()
+        separatorItem.button?.image = Self.separatorImage
+        updateToggleIcon()
         scheduleAutoHide()
     }
 
@@ -81,6 +95,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         // past the middle of the screen, where the app menus are.
         let leftEdge = screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX
         return max(Self.separatorLength, frame.maxX - leftEdge - 8)
+    }
+
+    private var isSeparatorLeftOfToggle: Bool {
+        guard let separator = separatorItem.button?.window?.frame,
+              let toggle = toggleItem.button?.window?.frame else { return true }
+        return separator.minX < toggle.minX
     }
 
     private func scheduleAutoHide() {
@@ -99,17 +119,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(autoHideDelay), execute: work)
     }
 
-    /// Shown: a thin "|" to click. Hidden: an empty area over where the icons were.
-    private func updateSeparator() {
-        separatorItem.button?.image = isHidden ? nil : Self.separatorImage
-        separatorItem.button?.toolTip = isHidden
-            ? "Нажмите, чтобы вернуть спрятанные иконки"
-            : "Нажмите, чтобы спрятать иконки левее черты. Перетаскивайте иконки с зажатым ⌘."
+    private func updateToggleIcon() {
+        let symbol = isHidden ? "eye.slash" : "eye"
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: isHidden ? "Показать иконки" : "Спрятать иконки")
+        toggleItem.button?.image = image?.withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
     }
 
     // MARK: - Clicks
 
-    @objc private func separatorClicked() {
+    @objc private func toggleClicked() {
         if NSApp.currentEvent?.type == .rightMouseUp {
             showMenu()
         } else {
@@ -155,12 +173,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.items.last?.target = self
 
         // Attach the menu only for this click, so a left click keeps toggling.
-        separatorItem.menu = menu
-        separatorItem.button?.performClick(nil)
+        toggleItem.menu = menu
+        toggleItem.button?.performClick(nil)
     }
 
     func menuDidClose(_ menu: NSMenu) {
-        separatorItem.menu = nil
+        toggleItem.menu = nil
     }
 
     @objc private func setAutoHideDelay(_ sender: NSMenuItem) {
@@ -214,7 +232,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     // MARK: - Guide
 
     private func showGuide() {
-        guard let button = separatorItem.button else { return }
+        guard let button = toggleItem.button else { return }
         guide?.close()
         let popover = NSPopover()
         popover.behavior = .transient
@@ -225,6 +243,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         guide = popover
         UserDefaults.standard.set(true, forKey: "didShowGuide")
+    }
+
+    private func showMisplacedSeparatorAlert() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Разделитель стоит не там"
+        alert.informativeText = "Черта «|» должна быть левее глаза Hido. Зажмите ⌘ и перетащите черту левее глаза — иначе Hido спрятал бы и сам глаз."
+        alert.runModal()
     }
 
     private static let separatorImage: NSImage = {
@@ -245,10 +271,10 @@ private struct GuideView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Как прятать иконки")
                 .font(.system(size: 15, weight: .semibold))
-            step("1", "Зажмите **⌘** и перетащите ненужные иконки **левее черты «|»**.")
-            step("2", "Нажмите на **черту** — иконки левее неё спрячутся. Чтобы вернуть, нажмите на пустое место, где они были.")
+            step("1", "Зажмите **⌘** и перетащите ненужные иконки **левее черты «|»** рядом с глазом.")
+            step("2", "Нажмите на **глаз**, и все иконки левее черты спрячутся. Нажмите ещё раз — появятся. Глаз остаётся на месте.")
             step("3", "Спрятанные иконки можно открыть и списком — системной кнопкой **«**.")
-            step("4", "Правый клик по черте — настройки: когда прятать автоматически, показ при наведении, автозапуск.")
+            step("4", "Правый клик по глазу — настройки: когда прятать автоматически, показ при наведении, автозапуск.")
             HStack {
                 Spacer()
                 Button("Понятно", action: onDone)
