@@ -91,12 +91,30 @@ final class MenuBarController: NSObject, NSMenuDelegate {
                 }
                 return
             }
+            // Without access, don't fall back to the stretched separator: on this macOS it pushes
+            // the icons into the system "«" button, which looks like a second arrow.
             if !didAskForAccess {
                 didAskForAccess = true
-                NativeHiding.requestAccess()
+                showAccessAlert()
             }
+            return
         }
         stretchSeparator()
+    }
+
+    private func showAccessAlert() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Hido нужен «Универсальный доступ»"
+        alert.informativeText = "Без него Hido не видит, какие значки стоят левее черты, и не может их спрятать. Включите Hido в списке. Если Hido там уже есть, удалите его кнопкой «−» и включите заново — после обновления macOS иногда сбрасывает разрешение."
+        alert.addButton(withTitle: "Открыть настройки")
+        alert.addButton(withTitle: "Позже")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NativeHiding.requestAccess()
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     /// Fallback hiding: the separator takes up the free space, pushing the icons into "«".
