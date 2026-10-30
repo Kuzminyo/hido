@@ -2,8 +2,7 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// Hides the menu bar icons left of a separator. An eye button to its right toggles them and
-/// never moves.
+/// Hides the menu bar icons left of a separator. An arrow button to its right toggles them.
 ///
 /// On macOS 27+ with Accessibility access, macOS itself is asked to hide those apps' icons
 /// (`NativeHiding`), which looks like Hidden Bar on older systems: the icons just disappear.
@@ -66,7 +65,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     func hide() {
         guard !isHidden, !isHiding else { return }
         guard isSeparatorLeftOfToggle else {
-            // Hiding everything left of a separator that sits to the right would take the eye too.
+            // Hiding everything left of a separator that sits to the right would take the arrow too.
             showMisplacedSeparatorAlert()
             return
         }
@@ -158,9 +157,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func updateToggleIcon() {
-        let symbol = isHidden ? "eye.slash" : "eye"
+        let symbol = isHidden ? "chevron.left" : "chevron.right"
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: isHidden ? "Показать иконки" : "Спрятать иконки")
-        toggleItem.button?.image = image?.withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
+        toggleItem.button?.image = image?.withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
     }
 
     // MARK: - Clicks
@@ -287,7 +286,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         NSApp.activate()
         let alert = NSAlert()
         alert.messageText = "Разделитель стоит не там"
-        alert.informativeText = "Черта «|» должна быть левее глаза Hido. Зажмите ⌘ и перетащите черту левее глаза — иначе Hido спрятал бы и сам глаз."
+        alert.informativeText = "Черта «|» должна быть левее стрелки Hido. Зажмите ⌘ и перетащите черту левее стрелки — иначе Hido спрятал бы и саму стрелку."
         alert.runModal()
     }
 
@@ -309,10 +308,10 @@ private struct GuideView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Как прятать иконки")
                 .font(.system(size: 15, weight: .semibold))
-            step("1", "Зажмите **⌘** и перетащите ненужные иконки **левее черты «|»** рядом с глазом.")
-            step("2", "Нажмите на **глаз**, и все иконки левее черты спрячутся. Нажмите ещё раз — появятся. Глаз остаётся на месте.")
+            step("1", "Зажмите **⌘** и перетащите ненужные иконки **левее черты «|»** рядом со стрелкой.")
+            step("2", "Нажмите на **стрелку**, и все иконки левее черты спрячутся. Нажмите ещё раз — появятся.")
             step("3", "Спрятанные иконки можно открыть и списком — системной кнопкой **«**.")
-            step("4", "Правый клик по глазу — настройки: когда прятать автоматически, показ при наведении, автозапуск.")
+            step("4", "Правый клик по стрелке — настройки: когда прятать автоматически, показ при наведении, автозапуск.")
             HStack {
                 Spacer()
                 Button("Понятно", action: onDone)
