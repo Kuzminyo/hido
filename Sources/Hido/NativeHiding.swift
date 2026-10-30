@@ -6,6 +6,20 @@ import HidoShim
 /// Reads whose icons sit left of the separator (needs Accessibility), then asks macOS to
 /// keep only the others; macOS hides the rest and reflows the bar itself, with no "«".
 /// Approach adapted from Hidden Bar by Dwarves Foundation (MIT).
+/// Appends a line to ~/Library/Logs/Hido.log, for figuring out why something didn't hide.
+func hidoLog(_ message: String) {
+    let url = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Logs/Hido.log")
+    let line = "\(Date().formatted(.iso8601)) \(message)\n"
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        try? handle.close()
+    } else {
+        try? Data(line.utf8).write(to: url)
+    }
+}
+
 final class NativeHiding {
     /// macOS's own items (clock, Wi-Fi, Control Center…) always stay; unknown ids are ignored.
     private static let systemItemsToKeep = (0..<64).map { NSNumber(value: $0) }
@@ -31,13 +45,14 @@ final class NativeHiding {
             // never disappear by accident.
             let visible = Set(icons.filter { $0.minX >= boundary }.map(\.bundleID))
             let hidden = Set(icons.map(\.bundleID)).subtracting(visible)
+            hidoLog("boundary \(boundary); icons \(icons.map { "\($0.bundleID)@\(Int($0.minX))" }); hiding \(hidden.sorted())")
             var allowed = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)).subtracting(hidden)
             allowed.insert(Bundle.main.bundleIdentifier ?? "com.kuzminyo.hido")
 
             DispatchQueue.main.async {
                 guard !hidden.isEmpty else { return completion(true) }
                 HidoMenuBarVisibilityActivate(Self.systemItemsToKeep, Array(allowed)) { [weak self] assertion, error in
-                    if let error { NSLog("Hido: native hiding failed: %@", error.localizedDescription) }
+                    if let error { hidoLog("native hiding failed: \(error.localizedDescription)") }
                     self?.assertion = assertion as AnyObject?
                     completion(assertion != nil)
                 }

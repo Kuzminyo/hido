@@ -70,6 +70,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             return
         }
         autoHideWork?.cancel()
+        hidoLog("hide: native \(NativeHiding.isAvailable), access \(NativeHiding.hasAccess)")
 
         if NativeHiding.isAvailable {
             if NativeHiding.hasAccess {
