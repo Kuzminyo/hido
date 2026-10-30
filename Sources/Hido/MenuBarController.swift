@@ -5,7 +5,6 @@ import SwiftUI
 /// Hides menu bar icons by stretching a separator item: everything to its left is pushed off
 /// the screen. A chevron item on its right toggles between hidden and shown.
 final class MenuBarController: NSObject, NSMenuDelegate {
-    private static let hiddenLength: CGFloat = 10_000
     private static let separatorLength: CGFloat = 14
     static let autoHideDelays: [Int] = [5, 10, 30, 0]
 
@@ -64,9 +63,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             return
         }
         autoHideWork?.cancel()
+        let length = hiddenLength
         isHidden = true
         separatorItem.button?.image = nil
-        separatorItem.length = Self.hiddenLength
+        separatorItem.length = length
         updateToggleIcon()
     }
 
@@ -80,6 +80,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         separatorItem.button?.image = Self.separatorImage
         updateToggleIcon()
         scheduleAutoHide()
+    }
+
+    /// How far to stretch the separator so it fills the menu bar from its left edge up to
+    /// where it stands. Everything that was there no longer fits and macOS hides it.
+    /// It must not be wider than that: on recent macOS a separator that doesn't fit is the
+    /// one that gets hidden, and the icons stay.
+    private var hiddenLength: CGFloat {
+        guard let frame = separatorItem.button?.window?.frame,
+              let screen = separatorItem.button?.window?.screen ?? NSScreen.main else { return 300 }
+        // Status items start right of the notch; without a notch, assume they never reach
+        // past the middle of the screen, where the app menus are.
+        let leftEdge = screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX
+        return max(Self.separatorLength, frame.maxX - leftEdge - 8)
     }
 
     private var isSeparatorLeftOfToggle: Bool {
